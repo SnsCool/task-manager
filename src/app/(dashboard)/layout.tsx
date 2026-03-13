@@ -17,10 +17,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    if (!isLoading && user && !team) {
+    if (!isLoading && !user) {
+      router.push('/login')
+    } else if (!isLoading && user && !team) {
       setShowOnboarding(true)
     }
-  }, [isLoading, user, team])
+  }, [isLoading, user, team, router])
 
   useEffect(() => {
     if (!team) return
@@ -55,19 +57,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!teamName.trim() || !user) return
     setCreating(true)
 
-    const { data: newTeam } = await supabase
-      .from('teams')
-      .insert({ name: teamName.trim() })
-      .select()
-      .single()
+    const teamId = crypto.randomUUID()
 
-    if (newTeam) {
+    const { error: insertError } = await supabase
+      .from('teams')
+      .insert({ id: teamId, name: teamName.trim() })
+
+    if (!insertError) {
       await supabase
         .from('profiles')
-        .update({ team_id: newTeam.id, role: 'admin' })
+        .update({ team_id: teamId, role: 'admin' })
         .eq('id', user.id)
 
-      router.refresh()
       window.location.reload()
     }
     setCreating(false)
