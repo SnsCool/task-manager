@@ -3,6 +3,9 @@
 -- Database Migration
 -- ============================================
 
+-- Enable extensions
+create extension if not exists pgcrypto with schema extensions;
+
 -- 1. Teams
 create table public.teams (
   id uuid primary key default gen_random_uuid(),
@@ -31,7 +34,7 @@ create table public.team_invitations (
   team_id uuid not null references public.teams on delete cascade,
   email text not null,
   role text not null default 'member' check (role in ('admin', 'member')),
-  token text not null default encode(gen_random_bytes(32), 'hex'),
+  token text not null default encode(extensions.gen_random_bytes(32), 'hex'),
   invited_by uuid not null references public.profiles on delete cascade,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'expired')),
   expires_at timestamptz default now() + interval '7 days',
