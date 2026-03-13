@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Save, Building2, Link, Slack, Calendar, Mail } from 'lucide-react'
+import { Save, Building2, Link, Slack, Calendar, Mail, MessageSquare } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { Header } from '@/components/layout/Header'
@@ -23,10 +23,33 @@ export default function SettingsPage() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
 
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('')
+  const [discordSaving, setDiscordSaving] = useState(false)
+  const [discordSaved, setDiscordSaved] = useState(false)
+  const [discordTesting, setDiscordTesting] = useState(false)
+  const [discordTestResult, setDiscordTestResult] = useState<'success' | 'error' | null>(null)
+  const [discordConnected, setDiscordConnected] = useState(false)
+
   useEffect(() => {
     if (team) setTeamName(team.name)
     if (user) setProfileName(user.full_name)
-  }, [team, user])
+
+    // Fetch Discord integration
+    if (team) {
+      supabase
+        .from('integrations')
+        .select('*')
+        .eq('team_id', team.id)
+        .eq('service_name', 'discord')
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setDiscordWebhookUrl((data.config as Record<string, string>)?.webhook_url || '')
+            setDiscordConnected(data.is_connected)
+          }
+        })
+    }
+  }, [team, user, supabase])
 
   const saveTeam = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,6 +69,60 @@ export default function SettingsPage() {
     setProfileSaving(false)
     setProfileSaved(true)
     setTimeout(() => setProfileSaved(false), 2000)
+  }
+
+  const saveDiscord = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!team) return
+    setDiscordSaving(true)
+
+    // Upsert the integration
+    const { data: existing } = await supabase
+      .from('integrations')
+      .select('id')
+      .eq('team_id', team.id)
+      .eq('service_name', 'discord')
+      .single()
+
+    if (existing) {
+      await supabase
+        .from('integrations')
+        .update({
+          config: { webhook_url: discordWebhookUrl },
+          is_connected: !!discordWebhookUrl,
+        })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('integrations').insert({
+        team_id: team.id,
+        service_name: 'discord',
+        config: { webhook_url: discordWebhookUrl },
+        is_connected: !!discordWebhookUrl,
+      })
+    }
+
+    setDiscordConnected(!!discordWebhookUrl)
+    setDiscordSaving(false)
+    setDiscordSaved(true)
+    setTimeout(() => setDiscordSaved(false), 2000)
+  }
+
+  const testDiscord = async () => {
+    if (!discordWebhookUrl) return
+    setDiscordTesting(true)
+    setDiscordTestResult(null)
+    try {
+      const res = await fetch('/api/discord/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: discordWebhookUrl }),
+      })
+      setDiscordTestResult(res.ok ? 'success' : 'error')
+    } catch {
+      setDiscordTestResult('error')
+    }
+    setDiscordTesting(false)
+    setTimeout(() => setDiscordTestResult(null), 3000)
   }
 
   return (
@@ -109,6 +186,56 @@ export default function SettingsPage() {
               <Save size={16} />
               {profileSaved ? '保存しました' : profileSaving ? '保存中...' : '保存'}
             </button>
+          </form>
+        </div>
+
+        {/* Discord Integration */}
+        <div className="bg-white rounded-xl border p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <MessageSquare size={20} className="text-indigo-600" />
+            <h3 className="text-lg font-semibold">Discord連携</h3>
+            {discordConnected && (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">接続済み</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Discord Webhook URLを設定すると、タスクの作成・ステータス変更時にDiscordチャンネルに通知が送信されます。
+          </p>
+          <form onSubmit={saveDiscord} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Webhook URL</label>
+              <input
+                type="url"
+                value={discordWebhookUrl}
+                onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={discordSaving}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Save size={16} />
+                {discordSaved ? '保存しました' : discordSaving ? '保存中...' : '保存'}
+              </button>
+              <button
+                type="button"
+                onClick={testDiscord}
+                disabled={discordTesting || !discordWebhookUrl}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {discordTesting ? 'テスト中...' : 'テスト送信'}
+              </button>
+              {discordTestResult === 'success' && (
+                <span className="text-sm text-green-600">送信成功!</span>
+              )}
+              {discordTestResult === 'error' && (
+                <span className="text-sm text-red-600">送信失敗</span>
+              )}
+            </div>
           </form>
         </div>
 

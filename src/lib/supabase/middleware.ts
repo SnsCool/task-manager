@@ -44,7 +44,7 @@ export async function updateSession(request: NextRequest) {
   // Redirect authenticated users away from auth pages
   if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup') || request.nextUrl.pathname.startsWith('/forgot-password'))) {
     const url = request.nextUrl.clone()
-    url.pathname = '/goals'
+    url.pathname = '/gantt'
     return NextResponse.redirect(url)
   }
 

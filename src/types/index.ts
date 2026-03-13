@@ -74,6 +74,7 @@ export type Database = {
           description: string | null
           status: 'not_started' | 'in_progress' | 'completed' | 'on_hold'
           priority: 'low' | 'medium' | 'high'
+          start_date: string | null
           due_date: string | null
           completion_criteria: string | null
           progress: number
@@ -91,6 +92,7 @@ export type Database = {
           description?: string | null
           status?: 'not_started' | 'in_progress' | 'completed' | 'on_hold'
           priority?: 'low' | 'medium' | 'high'
+          start_date?: string | null
           due_date?: string | null
           completion_criteria?: string | null
           progress?: number
@@ -286,3 +288,18 @@ export type DailyTaskInsert = Database['public']['Tables']['daily_tasks']['Inser
 export type DailyTaskUpdate = Database['public']['Tables']['daily_tasks']['Update']
 export type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
 export type NotificationInsert = Database['public']['Tables']['notifications']['Insert']
+
+// Gantt Chart types
+export type GanttTimeScale = 'day' | 'week' | 'month'
+
+export type GanttTask = Goal & {
+  barStartX: number
+  barWidth: number
+  rowIndex: number
+}
+
+export type TimelineRange = {
+  start: Date
+  end: Date
+  totalDays: number
+}

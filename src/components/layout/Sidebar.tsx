@@ -12,12 +12,14 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  GanttChartSquare,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useNotificationStore } from '@/stores/notifications'
 
 const navItems = [
+  { href: '/gantt', label: 'ガントチャート', icon: GanttChartSquare },
   { href: '/goals', label: 'ゴール', icon: Target },
   { href: '/execution', label: '実行', icon: ListTodo },
   { href: '/notifications', label: '通知', icon: Bell },
