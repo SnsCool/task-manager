@@ -16,6 +16,46 @@ interface GanttSidebarProps {
   onProgressChange?: (goalId: string, progress: number) => void
 }
 
+// Count all descendants recursively
+function countDescendants(goal: GoalWithChildren): number {
+  let count = goal.children.length
+  goal.children.forEach((c) => { count += countDescendants(c) })
+  return count
+}
+
+// Depth-based styling
+function getDepthStyles(depth: number) {
+  switch (depth) {
+    case 0:
+      return {
+        fontSize: 'text-sm',
+        fontWeight: 'font-semibold',
+        textColor: 'text-gray-900',
+        bgColor: 'bg-gray-50/80',
+        rowBorder: 'border-b-2 border-gray-200',
+        dotSize: 'w-3 h-3',
+      }
+    case 1:
+      return {
+        fontSize: 'text-[13px]',
+        fontWeight: 'font-medium',
+        textColor: 'text-gray-800',
+        bgColor: '',
+        rowBorder: 'border-b border-gray-100',
+        dotSize: 'w-2.5 h-2.5',
+      }
+    default:
+      return {
+        fontSize: 'text-xs',
+        fontWeight: 'font-normal',
+        textColor: 'text-gray-600',
+        bgColor: '',
+        rowBorder: 'border-b border-gray-50',
+        dotSize: 'w-2 h-2',
+      }
+  }
+}
+
 export function GanttSidebar({
   flatGoals,
   expandedIds,
@@ -37,27 +77,115 @@ export function GanttSidebar({
       </div>
 
       {/* Task rows */}
-      {flatGoals.map((goal) => {
+      {flatGoals.map((goal, index) => {
         const hasChildren = goal.children && goal.children.length > 0
         const isExpanded = expandedIds.has(goal.id)
+        const styles = getDepthStyles(goal.depth)
+        const descendantCount = hasChildren ? countDescendants(goal) : 0
+
+        // Determine if this is the last child at its level
+        // (for drawing tree lines correctly)
+        const isLastAtLevel = (() => {
+          if (index === flatGoals.length - 1) return true
+          const nextGoal = flatGoals[index + 1]
+          if (!nextGoal) return true
+          return nextGoal.depth <= goal.depth
+        })()
+
+        // Check if any subsequent sibling exists at same depth with same parent
+        const hasNextSibling = (() => {
+          for (let i = index + 1; i < flatGoals.length; i++) {
+            const g = flatGoals[i]
+            if (g.depth < goal.depth) return false
+            if (g.depth === goal.depth && g.parent_id === goal.parent_id) return true
+          }
+          return false
+        })()
 
         return (
           <div
             key={goal.id}
-            className="flex items-center border-b border-gray-100 hover:bg-blue-50/50 group"
+            className={`flex items-center hover:bg-blue-50/50 group relative ${styles.rowBorder} ${styles.bgColor}`}
             style={{ height: rowHeight }}
           >
-            {/* Indent */}
+            {/* Tree lines */}
+            {goal.depth > 0 && (
+              <>
+                {/* Vertical line from parent */}
+                <div
+                  className="absolute border-l border-gray-300"
+                  style={{
+                    left: (goal.depth - 1) * 20 + 18,
+                    top: 0,
+                    height: hasNextSibling ? '100%' : '50%',
+                  }}
+                />
+                {/* Horizontal branch line */}
+                <div
+                  className="absolute border-t border-gray-300"
+                  style={{
+                    left: (goal.depth - 1) * 20 + 18,
+                    top: '50%',
+                    width: 10,
+                  }}
+                />
+              </>
+            )}
+
+            {/* Continuation lines for ancestor levels */}
+            {Array.from({ length: goal.depth - 1 }, (_, lvl) => {
+              // Check if there's a subsequent sibling at this ancestor level
+              const ancestorDepth = lvl
+              const hasAncestorSibling = (() => {
+                for (let i = index + 1; i < flatGoals.length; i++) {
+                  const g = flatGoals[i]
+                  if (g.depth <= ancestorDepth) {
+                    // Found something at ancestor level - check if it's a sibling
+                    return g.depth === ancestorDepth + 1 || g.depth <= ancestorDepth
+                  }
+                }
+                return false
+              })()
+
+              // Simplified: just check if any item after this has a parent chain at that level
+              const showLine = (() => {
+                for (let i = index + 1; i < flatGoals.length; i++) {
+                  if (flatGoals[i].depth <= ancestorDepth) return flatGoals[i].depth === ancestorDepth + 1
+                  if (flatGoals[i].depth > ancestorDepth) continue
+                }
+                return false
+              })()
+
+              return showLine ? (
+                <div
+                  key={`line-${lvl}`}
+                  className="absolute border-l border-gray-200"
+                  style={{
+                    left: lvl * 20 + 18,
+                    top: 0,
+                    height: '100%',
+                  }}
+                />
+              ) : null
+            })}
+
+            {/* Indent spacer */}
             <div style={{ width: goal.depth * 20 }} className="shrink-0" />
 
-            {/* Expand/collapse */}
+            {/* Expand/collapse toggle */}
             <button
               onClick={() => hasChildren && onToggle(goal.id)}
-              className={`w-5 h-5 flex items-center justify-center shrink-0 ${
-                hasChildren ? 'text-gray-400 hover:text-gray-600' : 'invisible'
+              className={`w-5 h-5 flex items-center justify-center shrink-0 rounded transition-colors ${
+                hasChildren
+                  ? 'text-gray-500 hover:text-blue-600 hover:bg-blue-100'
+                  : 'invisible'
               }`}
             >
-              {hasChildren && (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+              {hasChildren && (
+                isExpanded
+                  ? <ChevronDown size={goal.depth === 0 ? 16 : 14} />
+                  : <ChevronRight size={goal.depth === 0 ? 16 : 14} />
+              )}
             </button>
 
             {/* Status dropdown */}
@@ -68,12 +196,17 @@ export function GanttSidebar({
               />
             </div>
 
-            {/* Title */}
+            {/* Title + children count */}
             <button
               onClick={() => onGoalClick(goal)}
-              className="flex-1 text-left text-sm text-gray-800 truncate px-1 hover:text-blue-600 min-w-0"
+              className={`flex-1 text-left truncate px-1 hover:text-blue-600 min-w-0 flex items-center gap-1.5 ${styles.fontSize} ${styles.fontWeight} ${styles.textColor}`}
             >
-              {goal.title}
+              <span className="truncate">{goal.title}</span>
+              {hasChildren && (
+                <span className="shrink-0 text-[10px] font-normal text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 leading-none">
+                  {descendantCount}
+                </span>
+              )}
             </button>
 
             {/* Progress slider */}

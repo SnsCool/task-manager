@@ -50,7 +50,26 @@ export function GanttBar({
   if (!position) return null
 
   const statusColor = getStatusColor(goal.status)
-  const barHeight = 24
+  const hasChildren = goal.children && goal.children.length > 0
+
+  // Depth-based bar styling: larger tasks get thicker bars
+  let barHeight: number
+  let borderRadius: string
+  let opacity: string
+  if (goal.depth === 0) {
+    barHeight = 28
+    borderRadius = 'rounded-md'
+    opacity = ''
+  } else if (goal.depth === 1) {
+    barHeight = 22
+    borderRadius = 'rounded'
+    opacity = ''
+  } else {
+    barHeight = 16
+    borderRadius = 'rounded-sm'
+    opacity = ''
+  }
+
   const topOffset = (rowHeight - barHeight) / 2
   const handleWidth = 6
 
@@ -159,9 +178,9 @@ export function GanttBar({
     <>
       <div
         ref={barRef}
-        className={`absolute rounded-md transition-opacity ${
+        className={`absolute ${borderRadius} transition-opacity ${
           dragMode ? 'opacity-70 z-30' : 'hover:opacity-90'
-        } ${statusColor}`}
+        } ${statusColor} ${opacity}`}
         style={{
           left: displayLeft,
           width: displayWidth,
@@ -176,7 +195,7 @@ export function GanttBar({
       >
         {/* Left resize handle */}
         <div
-          className="absolute left-0 top-0 bottom-0 cursor-col-resize z-10 hover:bg-white/30 rounded-l-md"
+          className={`absolute left-0 top-0 bottom-0 cursor-col-resize z-10 hover:bg-white/30 ${goal.depth === 0 ? 'rounded-l-md' : goal.depth === 1 ? 'rounded-l' : 'rounded-l-sm'}`}
           style={{ width: handleWidth }}
           onMouseDown={(e) => handleMouseDown(e, 'resize-left')}
         />
@@ -190,7 +209,7 @@ export function GanttBar({
 
         {/* Right resize handle */}
         <div
-          className="absolute right-0 top-0 bottom-0 cursor-col-resize z-10 hover:bg-white/30 rounded-r-md"
+          className={`absolute right-0 top-0 bottom-0 cursor-col-resize z-10 hover:bg-white/30 ${goal.depth === 0 ? 'rounded-r-md' : goal.depth === 1 ? 'rounded-r' : 'rounded-r-sm'}`}
           style={{ width: handleWidth }}
           onMouseDown={(e) => handleMouseDown(e, 'resize-right')}
         />
@@ -198,14 +217,16 @@ export function GanttBar({
         {/* Progress indicator */}
         {goal.progress > 0 && (
           <div
-            className="absolute inset-y-0 left-0 rounded-md bg-white/25 pointer-events-none"
+            className={`absolute inset-y-0 left-0 ${borderRadius} bg-white/25 pointer-events-none`}
             style={{ width: `${goal.progress}%` }}
           />
         )}
 
         {/* Label */}
         {displayWidth > 60 && (
-          <span className="absolute inset-0 flex items-center px-2 text-[11px] text-white font-medium truncate pointer-events-none">
+          <span className={`absolute inset-0 flex items-center px-2 text-white truncate pointer-events-none ${
+            goal.depth === 0 ? 'text-xs font-semibold' : goal.depth === 1 ? 'text-[11px] font-medium' : 'text-[10px] font-normal'
+          }`}>
             {goal.title}
           </span>
         )}
