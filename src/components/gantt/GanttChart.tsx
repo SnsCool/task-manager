@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
+import { useRef, useCallback, useMemo } from 'react'
 import type { GoalWithChildren, GanttTimeScale, Goal } from '@/types'
 import { calculateTimelineRange, getColumnWidth } from '@/lib/gantt-utils'
 import { GanttTimeline } from './GanttTimeline'

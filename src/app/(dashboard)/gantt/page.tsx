@@ -152,7 +152,7 @@ export default function GanttPage() {
 
   const handleAddSubGoal = (pid: string) => {
     setEditGoal(null)
-    setParentId(pid)
+    setParentId(pid || null)
     setShowForm(true)
   }
 
