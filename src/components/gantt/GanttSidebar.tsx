@@ -1,8 +1,9 @@
 'use client'
 
 import { ChevronRight, ChevronDown, Plus } from 'lucide-react'
-import type { GoalWithChildren } from '@/types'
-import { getStatusColor } from '@/lib/gantt-utils'
+import type { GoalWithChildren, Goal } from '@/types'
+import { StatusDropdown } from './StatusDropdown'
+import { ProgressSlider } from './ProgressSlider'
 
 interface GanttSidebarProps {
   flatGoals: GoalWithChildren[]
@@ -11,6 +12,8 @@ interface GanttSidebarProps {
   onToggle: (id: string) => void
   onAddSubGoal: (parentId: string) => void
   onGoalClick: (goal: GoalWithChildren) => void
+  onStatusChange?: (goalId: string, status: Goal['status']) => void
+  onProgressChange?: (goalId: string, progress: number) => void
 }
 
 export function GanttSidebar({
@@ -20,13 +23,16 @@ export function GanttSidebar({
   onToggle,
   onAddSubGoal,
   onGoalClick,
+  onStatusChange,
+  onProgressChange,
 }: GanttSidebarProps) {
   return (
-    <div className="w-[300px] shrink-0 border-r border-gray-200 bg-white">
+    <div className="w-[360px] shrink-0 border-r border-gray-200 bg-white">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200">
-        <div className="h-[52px] flex items-center px-3 text-sm font-semibold text-gray-700 border-b border-gray-100">
-          タスク名
+        <div className="h-[52px] flex items-center text-sm font-semibold text-gray-700 border-b border-gray-100">
+          <span className="flex-1 px-3">タスク名</span>
+          <span className="w-[90px] text-center text-xs font-normal text-gray-500">進捗</span>
         </div>
       </div>
 
@@ -34,7 +40,6 @@ export function GanttSidebar({
       {flatGoals.map((goal) => {
         const hasChildren = goal.children && goal.children.length > 0
         const isExpanded = expandedIds.has(goal.id)
-        const statusDotColor = getStatusColor(goal.status).replace('bg-', 'bg-')
 
         return (
           <div
@@ -55,16 +60,29 @@ export function GanttSidebar({
               {hasChildren && (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
             </button>
 
-            {/* Status dot */}
-            <div className={`w-2.5 h-2.5 rounded-full shrink-0 mx-1.5 ${statusDotColor}`} />
+            {/* Status dropdown */}
+            <div className="shrink-0 mx-1.5">
+              <StatusDropdown
+                status={goal.status}
+                onChange={(status) => onStatusChange?.(goal.id, status)}
+              />
+            </div>
 
             {/* Title */}
             <button
               onClick={() => onGoalClick(goal)}
-              className="flex-1 text-left text-sm text-gray-800 truncate px-1 hover:text-blue-600"
+              className="flex-1 text-left text-sm text-gray-800 truncate px-1 hover:text-blue-600 min-w-0"
             >
               {goal.title}
             </button>
+
+            {/* Progress slider */}
+            <div className="shrink-0 mr-1">
+              <ProgressSlider
+                progress={goal.progress}
+                onChange={(progress) => onProgressChange?.(goal.id, progress)}
+              />
+            </div>
 
             {/* Add sub-goal */}
             <button

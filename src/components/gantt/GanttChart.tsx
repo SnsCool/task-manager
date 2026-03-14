@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useState, useEffect } from 'react'
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import type { GoalWithChildren, GanttTimeScale, Goal } from '@/types'
 import { calculateTimelineRange, getColumnWidth } from '@/lib/gantt-utils'
 import { GanttTimeline } from './GanttTimeline'
@@ -11,51 +11,36 @@ interface GanttChartProps {
   goals: GoalWithChildren[]
   allGoals: Goal[]
   scale: GanttTimeScale
+  expandedIds: Set<string>
+  onToggle: (id: string) => void
   onGoalClick: (goal: GoalWithChildren) => void
   onAddSubGoal: (parentId: string) => void
+  onGoalUpdate?: (goalId: string, updates: { start_date?: string; due_date?: string }) => void
+  onStatusChange?: (goalId: string, status: Goal['status']) => void
+  onProgressChange?: (goalId: string, progress: number) => void
+  onContextMenu?: (e: React.MouseEvent, goal: GoalWithChildren) => void
 }
 
-export function GanttChart({ goals, allGoals, scale, onGoalClick, onAddSubGoal }: GanttChartProps) {
+export function GanttChart({
+  goals,
+  allGoals,
+  scale,
+  expandedIds,
+  onToggle,
+  onGoalClick,
+  onAddSubGoal,
+  onGoalUpdate,
+  onStatusChange,
+  onProgressChange,
+  onContextMenu,
+}: GanttChartProps) {
   const sidebarScrollRef = useRef<HTMLDivElement>(null)
   const gridScrollRef = useRef<HTMLDivElement>(null)
   const isSyncing = useRef(false)
   const rowHeight = 40
 
-  // Track expanded goal IDs
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    // Initially expand all goals that have children
-    const ids = new Set<string>()
-    const collectExpandable = (nodes: GoalWithChildren[]) => {
-      nodes.forEach((n) => {
-        if (n.children.length > 0) {
-          ids.add(n.id)
-          collectExpandable(n.children)
-        }
-      })
-    }
-    collectExpandable(goals)
-    return ids
-  })
-
-  // Rebuild expanded set when goals change
-  useEffect(() => {
-    setExpandedIds((prev) => {
-      const ids = new Set(prev)
-      const collectExpandable = (nodes: GoalWithChildren[]) => {
-        nodes.forEach((n) => {
-          if (n.children.length > 0 && !ids.has(n.id)) {
-            ids.add(n.id)
-          }
-          collectExpandable(n.children)
-        })
-      }
-      collectExpandable(goals)
-      return ids
-    })
-  }, [goals])
-
   // Flatten tree based on expanded state
-  const flatGoals = useCallback((): GoalWithChildren[] => {
+  const flatGoals = useMemo((): GoalWithChildren[] => {
     const result: GoalWithChildren[] = []
     const flatten = (nodes: GoalWithChildren[]) => {
       nodes.forEach((node) => {
@@ -67,19 +52,10 @@ export function GanttChart({ goals, allGoals, scale, onGoalClick, onAddSubGoal }
     }
     flatten(goals)
     return result
-  }, [goals, expandedIds])()
+  }, [goals, expandedIds])
 
   const range = calculateTimelineRange(allGoals, scale)
   const columnWidth = getColumnWidth(scale)
-
-  const handleToggle = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   // Synchronized vertical scrolling
   const handleSidebarScroll = useCallback(() => {
@@ -113,9 +89,11 @@ export function GanttChart({ goals, allGoals, scale, onGoalClick, onAddSubGoal }
           flatGoals={flatGoals}
           expandedIds={expandedIds}
           rowHeight={rowHeight}
-          onToggle={handleToggle}
+          onToggle={onToggle}
           onAddSubGoal={onAddSubGoal}
           onGoalClick={onGoalClick}
+          onStatusChange={onStatusChange}
+          onProgressChange={onProgressChange}
         />
       </div>
 
@@ -134,6 +112,8 @@ export function GanttChart({ goals, allGoals, scale, onGoalClick, onAddSubGoal }
               scale={scale}
               rowHeight={rowHeight}
               onGoalClick={onGoalClick}
+              onGoalUpdate={onGoalUpdate}
+              onContextMenu={onContextMenu}
             />
           </div>
         </div>

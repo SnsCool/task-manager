@@ -186,3 +186,35 @@ export function formatDate(date: string | null): string {
   const d = new Date(date)
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
+
+/**
+ * Convert pixel offset to number of days
+ */
+export function pixelOffsetToDays(px: number, columnWidth: number): number {
+  return Math.round(px / columnWidth)
+}
+
+/**
+ * Add days to a date string and return new date string (YYYY-MM-DD)
+ */
+export function addDaysToDateString(dateStr: string, days: number): string {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+/**
+ * Get priority label in Japanese
+ */
+export function getPriorityLabel(priority: Goal['priority']): string {
+  switch (priority) {
+    case 'low':
+      return '低'
+    case 'medium':
+      return '中'
+    case 'high':
+      return '高'
+    default:
+      return priority
+  }
+}

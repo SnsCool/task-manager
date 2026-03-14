@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Plus, Calendar, CalendarDays, CalendarRange } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { useGoalStore } from '@/stores/goals'
 import { GanttChart } from '@/components/gantt/GanttChart'
 import { GanttTaskForm } from '@/components/gantt/GanttTaskForm'
+import { GanttToolbar, type SortKey, type StatusFilter, type PriorityFilter } from '@/components/gantt/GanttToolbar'
+import { ContextMenu } from '@/components/gantt/ContextMenu'
 import { Header } from '@/components/layout/Header'
+import { getStatusColor, getStatusLabel } from '@/lib/gantt-utils'
 import type { GanttTimeScale, Goal, GoalWithChildren } from '@/types'
 
 const scaleOptions: { value: GanttTimeScale; label: string; icon: typeof Calendar }[] = [
@@ -15,6 +18,8 @@ const scaleOptions: { value: GanttTimeScale; label: string; icon: typeof Calenda
   { value: 'week', label: '週', icon: CalendarDays },
   { value: 'month', label: '月', icon: CalendarRange },
 ]
+
+const statusLegend: Goal['status'][] = ['not_started', 'in_progress', 'completed', 'on_hold']
 
 export default function GanttPage() {
   const supabase = createClient()
@@ -24,6 +29,21 @@ export default function GanttPage() {
   const [showForm, setShowForm] = useState(false)
   const [editGoal, setEditGoal] = useState<Goal | null>(null)
   const [parentId, setParentId] = useState<string | null>(null)
+
+  // Filter & sort state
+  const [statusFilters, setStatusFilters] = useState<Set<StatusFilter>>(new Set())
+  const [priorityFilters, setPriorityFilters] = useState<Set<PriorityFilter>>(new Set())
+  const [sortKey, setSortKey] = useState<SortKey>('created_at')
+
+  // Expanded IDs state (lifted from GanttChart)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    goal: GoalWithChildren
+  } | null>(null)
 
   const fetchGoals = useCallback(async () => {
     if (!team) return
@@ -43,6 +63,87 @@ export default function GanttPage() {
 
   const tree = buildTree(goals)
 
+  // Initialize expanded IDs when tree changes
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      const ids = new Set(prev)
+      const collectExpandable = (nodes: GoalWithChildren[]) => {
+        nodes.forEach((n) => {
+          if (n.children.length > 0 && !ids.has(n.id)) {
+            ids.add(n.id)
+          }
+          collectExpandable(n.children)
+        })
+      }
+      collectExpandable(tree)
+      return ids
+    })
+  }, [tree])
+
+  // Filter and sort goals
+  const filteredGoals = useMemo(() => {
+    let filtered = [...goals]
+
+    // Apply status filters
+    if (statusFilters.size > 0) {
+      const matchingIds = new Set<string>()
+      filtered.forEach((g) => {
+        if (statusFilters.has(g.status)) {
+          matchingIds.add(g.id)
+          // Include parent chain for tree structure
+          let current = g
+          while (current.parent_id) {
+            matchingIds.add(current.parent_id)
+            const parent = filtered.find((p) => p.id === current.parent_id)
+            if (!parent) break
+            current = parent
+          }
+        }
+      })
+      filtered = filtered.filter((g) => matchingIds.has(g.id))
+    }
+
+    // Apply priority filters
+    if (priorityFilters.size > 0) {
+      const matchingIds = new Set<string>()
+      filtered.forEach((g) => {
+        if (priorityFilters.has(g.priority)) {
+          matchingIds.add(g.id)
+          let current = g
+          while (current.parent_id) {
+            matchingIds.add(current.parent_id)
+            const parent = filtered.find((p) => p.id === current.parent_id)
+            if (!parent) break
+            current = parent
+          }
+        }
+      })
+      filtered = filtered.filter((g) => matchingIds.has(g.id))
+    }
+
+    // Apply sort
+    const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
+    const statusOrder: Record<string, number> = { in_progress: 0, not_started: 1, on_hold: 2, completed: 3 }
+
+    filtered.sort((a, b) => {
+      switch (sortKey) {
+        case 'due_date':
+          return (a.due_date || '9999').localeCompare(b.due_date || '9999')
+        case 'priority':
+          return (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
+        case 'status':
+          return (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)
+        case 'created_at':
+        default:
+          return a.created_at.localeCompare(b.created_at)
+      }
+    })
+
+    return filtered
+  }, [goals, statusFilters, priorityFilters, sortKey])
+
+  const filteredTree = buildTree(filteredGoals)
+
   const handleGoalClick = (goal: GoalWithChildren) => {
     setEditGoal(goal)
     setParentId(null)
@@ -61,12 +162,89 @@ export default function GanttPage() {
     setShowForm(true)
   }
 
+  const handleToggle = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleExpandAll = () => {
+    const ids = new Set<string>()
+    const collect = (nodes: GoalWithChildren[]) => {
+      nodes.forEach((n) => {
+        if (n.children.length > 0) {
+          ids.add(n.id)
+          collect(n.children)
+        }
+      })
+    }
+    collect(filteredTree)
+    setExpandedIds(ids)
+  }
+
+  const handleCollapseAll = () => {
+    setExpandedIds(new Set())
+  }
+
+  // Drag update handler (optimistic update + Supabase save)
+  const handleGoalUpdate = useCallback(async (goalId: string, updates: { start_date?: string; due_date?: string }) => {
+    // Optimistic update
+    setGoals(goals.map((g) => (g.id === goalId ? { ...g, ...updates } : g)))
+    // Save to Supabase
+    await supabase.from('goals').update(updates).eq('id', goalId)
+  }, [goals, setGoals, supabase])
+
+  // Status change handler
+  const handleStatusChange = useCallback(async (goalId: string, status: Goal['status']) => {
+    setGoals(goals.map((g) => (g.id === goalId ? { ...g, status } : g)))
+    await supabase.from('goals').update({ status }).eq('id', goalId)
+  }, [goals, setGoals, supabase])
+
+  // Progress change handler
+  const handleProgressChange = useCallback(async (goalId: string, progress: number) => {
+    setGoals(goals.map((g) => (g.id === goalId ? { ...g, progress } : g)))
+    await supabase.from('goals').update({ progress }).eq('id', goalId)
+  }, [goals, setGoals, supabase])
+
+  // Context menu handler
+  const handleContextMenu = useCallback((e: React.MouseEvent, goal: GoalWithChildren) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, goal })
+  }, [])
+
+  // Delete handler
+  const handleDelete = useCallback(async (goalId: string) => {
+    setGoals(goals.filter((g) => g.id !== goalId))
+    await supabase.from('goals').delete().eq('id', goalId)
+  }, [goals, setGoals, supabase])
+
+  // Toggle status/priority filters
+  const handleToggleStatus = (s: StatusFilter) => {
+    setStatusFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return next
+    })
+  }
+
+  const handleTogglePriority = (p: PriorityFilter) => {
+    setPriorityFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(p)) next.delete(p)
+      else next.add(p)
+      return next
+    })
+  }
+
   return (
     <>
       <Header title="ガントチャート" />
       <div className="p-6 flex flex-col h-[calc(100vh-64px)]">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between mb-4">
+        {/* Top toolbar row */}
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="flex bg-gray-100 rounded-lg p-0.5">
               {scaleOptions.map((opt) => {
@@ -87,7 +265,19 @@ export default function GanttPage() {
                 )
               })}
             </div>
-            <span className="text-sm text-gray-500 ml-2">{goals.length}個のタスク</span>
+            <span className="text-sm text-gray-500 ml-2">
+              {filteredGoals.length}/{goals.length}個のタスク
+            </span>
+
+            {/* Status legend */}
+            <div className="flex items-center gap-2 ml-4">
+              {statusLegend.map((s) => (
+                <div key={s} className="flex items-center gap-1">
+                  <div className={`w-2 h-2 rounded-full ${getStatusColor(s)}`} />
+                  <span className="text-[11px] text-gray-400">{getStatusLabel(s)}</span>
+                </div>
+              ))}
+            </div>
           </div>
           <button
             onClick={handleNewGoal}
@@ -96,6 +286,20 @@ export default function GanttPage() {
             <Plus size={16} />
             新規タスク
           </button>
+        </div>
+
+        {/* Filter/Sort toolbar */}
+        <div className="mb-3">
+          <GanttToolbar
+            statusFilters={statusFilters}
+            priorityFilters={priorityFilters}
+            sortKey={sortKey}
+            onToggleStatus={handleToggleStatus}
+            onTogglePriority={handleTogglePriority}
+            onSortChange={setSortKey}
+            onExpandAll={handleExpandAll}
+            onCollapseAll={handleCollapseAll}
+          />
         </div>
 
         {/* Gantt Chart */}
@@ -115,22 +319,50 @@ export default function GanttPage() {
             </div>
           ) : (
             <GanttChart
-              goals={tree}
-              allGoals={goals}
+              goals={filteredTree}
+              allGoals={filteredGoals}
               scale={scale}
+              expandedIds={expandedIds}
+              onToggle={handleToggle}
               onGoalClick={handleGoalClick}
               onAddSubGoal={handleAddSubGoal}
+              onGoalUpdate={handleGoalUpdate}
+              onStatusChange={handleStatusChange}
+              onProgressChange={handleProgressChange}
+              onContextMenu={handleContextMenu}
             />
           )}
         </div>
       </div>
 
+      {/* Task Form Modal */}
       {showForm && (
         <GanttTaskForm
           parentId={parentId}
           goal={editGoal}
           onClose={() => setShowForm(false)}
           onSaved={() => { setShowForm(false); fetchGoals() }}
+        />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onEdit={() => {
+            handleGoalClick(contextMenu.goal)
+            setContextMenu(null)
+          }}
+          onDelete={() => {
+            handleDelete(contextMenu.goal.id)
+            setContextMenu(null)
+          }}
+          onAddSubTask={() => {
+            handleAddSubGoal(contextMenu.goal.id)
+            setContextMenu(null)
+          }}
+          onClose={() => setContextMenu(null)}
         />
       )}
     </>

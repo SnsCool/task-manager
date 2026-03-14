@@ -10,9 +10,19 @@ interface GanttGridProps {
   scale: GanttTimeScale
   rowHeight: number
   onGoalClick: (goal: GoalWithChildren) => void
+  onGoalUpdate?: (goalId: string, updates: { start_date?: string; due_date?: string }) => void
+  onContextMenu?: (e: React.MouseEvent, goal: GoalWithChildren) => void
 }
 
-export function GanttGrid({ flatGoals, range, scale, rowHeight, onGoalClick }: GanttGridProps) {
+export function GanttGrid({
+  flatGoals,
+  range,
+  scale,
+  rowHeight,
+  onGoalClick,
+  onGoalUpdate,
+  onContextMenu,
+}: GanttGridProps) {
   const columns = generateTimelineColumns(range, scale)
   const columnWidth = getColumnWidth(scale)
   const totalWidth = columns.length * columnWidth
@@ -65,6 +75,8 @@ export function GanttGrid({ flatGoals, range, scale, rowHeight, onGoalClick }: G
             columnWidth={columnWidth}
             rowHeight={rowHeight}
             onClick={onGoalClick}
+            onGoalUpdate={onGoalUpdate}
+            onContextMenu={onContextMenu}
           />
         </div>
       ))}
