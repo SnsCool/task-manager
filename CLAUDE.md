@@ -5,3 +5,16 @@
 
 *No recent activity*
 </claude-mem-context>
+<!-- git-repo
+url: https://github.com/SnsCool/task-manager.git
+-->
+
+<!-- discord-thread
+thread_id: 1482303636498415656
+-->
+
+<!-- notion-project
+management_id: PRJ-20260319-task-manager
+notion_page_id: 328f3b0f-ba85-81a3-8fed-c47c1f0f4433
+active_tasks:
+-->
