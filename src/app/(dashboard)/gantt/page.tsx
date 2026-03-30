@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Plus, Calendar, CalendarDays, CalendarRange } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
@@ -22,7 +22,7 @@ const scaleOptions: { value: GanttTimeScale; label: string; icon: typeof Calenda
 const statusLegend: Goal['status'][] = ['not_started', 'in_progress', 'completed', 'on_hold']
 
 export default function GanttPage() {
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
   const { team } = useAuthStore()
   const { goals, setGoals, setLoading, buildTree } = useGoalStore()
   const [scale, setScale] = useState<GanttTimeScale>('day')
@@ -48,37 +48,40 @@ export default function GanttPage() {
   const fetchGoals = useCallback(async () => {
     if (!team) return
     setLoading(true)
-    const { data } = await supabase
+    const { data } = await supabaseRef.current
       .from('goals')
       .select('*')
       .eq('team_id', team.id)
       .order('created_at', { ascending: true })
     if (data) setGoals(data)
     setLoading(false)
-  }, [team, supabase, setGoals, setLoading])
+  }, [team, setGoals, setLoading])
 
   useEffect(() => {
     fetchGoals()
   }, [fetchGoals])
 
-  const tree = buildTree(goals)
+  const tree = useMemo(() => buildTree(goals), [goals, buildTree])
 
-  // Initialize expanded IDs when tree changes
+  // Initialize expanded IDs when goals change
   useEffect(() => {
     setExpandedIds((prev) => {
+      const currentTree = buildTree(goals)
       const ids = new Set(prev)
+      let changed = false
       const collectExpandable = (nodes: GoalWithChildren[]) => {
         nodes.forEach((n) => {
           if (n.children.length > 0 && !ids.has(n.id)) {
             ids.add(n.id)
+            changed = true
           }
           collectExpandable(n.children)
         })
       }
-      collectExpandable(tree)
-      return ids
+      collectExpandable(currentTree)
+      return changed ? ids : prev
     })
-  }, [tree])
+  }, [goals, buildTree])
 
   // Filter and sort goals
   const filteredGoals = useMemo(() => {
@@ -194,20 +197,20 @@ export default function GanttPage() {
     // Optimistic update
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, ...updates } : g)))
     // Save to Supabase
-    await supabase.from('goals').update(updates).eq('id', goalId)
-  }, [goals, setGoals, supabase])
+    await supabaseRef.current.from('goals').update(updates).eq('id', goalId)
+  }, [goals, setGoals])
 
   // Status change handler
   const handleStatusChange = useCallback(async (goalId: string, status: Goal['status']) => {
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, status } : g)))
-    await supabase.from('goals').update({ status }).eq('id', goalId)
-  }, [goals, setGoals, supabase])
+    await supabaseRef.current.from('goals').update({ status }).eq('id', goalId)
+  }, [goals, setGoals])
 
   // Progress change handler
   const handleProgressChange = useCallback(async (goalId: string, progress: number) => {
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, progress } : g)))
-    await supabase.from('goals').update({ progress }).eq('id', goalId)
-  }, [goals, setGoals, supabase])
+    await supabaseRef.current.from('goals').update({ progress }).eq('id', goalId)
+  }, [goals, setGoals])
 
   // Context menu handler
   const handleContextMenu = useCallback((e: React.MouseEvent, goal: GoalWithChildren) => {
@@ -217,8 +220,8 @@ export default function GanttPage() {
   // Delete handler
   const handleDelete = useCallback(async (goalId: string) => {
     setGoals(goals.filter((g) => g.id !== goalId))
-    await supabase.from('goals').delete().eq('id', goalId)
-  }, [goals, setGoals, supabase])
+    await supabaseRef.current.from('goals').delete().eq('id', goalId)
+  }, [goals, setGoals])
 
   // Toggle status/priority filters
   const handleToggleStatus = (s: StatusFilter) => {
