@@ -1,66 +1,48 @@
 'use client'
 
 import { useEffect } from 'react'
+import { useSession, signOut as nextAuthSignOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
+import { apiFetch } from '@/lib/api-client'
+import type { Profile, Team } from '@/types'
 
 export function useAuth() {
+  const { data: session, status } = useSession()
   const router = useRouter()
   const { user, team, isLoading, setUser, setTeam, setLoading } = useAuthStore()
-  const supabase = createClient()
 
   useEffect(() => {
+    if (status === 'loading') return
+
+    if (status === 'unauthenticated') {
+      setUser(null)
+      setTeam(null)
+      setLoading(false)
+      return
+    }
+
     const fetchProfile = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (!authUser) {
+      try {
+        const data = await apiFetch<Profile & { team: Team | null }>('/api/me')
+        setUser(data)
+        setTeam(data.team)
+      } catch {
         setUser(null)
         setTeam(null)
-        setLoading(false)
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single()
-
-      if (profile) {
-        setUser(profile)
-        if (profile.team_id) {
-          const { data: teamData } = await supabase
-            .from('teams')
-            .select('*')
-            .eq('id', profile.team_id)
-            .single()
-          setTeam(teamData)
-        }
       }
       setLoading(false)
     }
 
     fetchProfile()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        setUser(null)
-        setTeam(null)
-        router.push('/login')
-      } else {
-        fetchProfile()
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signOut = async () => {
-    await supabase.auth.signOut()
     setUser(null)
     setTeam(null)
+    await nextAuthSignOut({ redirect: false })
     router.push('/login')
   }
 
-  return { user, team, isLoading, signOut }
+  return { user, team, isLoading: isLoading || status === 'loading', signOut, session }
 }

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { signIn } from 'next-auth/react'
 import { Target } from 'lucide-react'
 
 export default function LoginPage() {
@@ -12,22 +12,25 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    const result = await signIn('credentials', {
+      email,
+      password,
+      redirect: false,
+    })
 
-    if (authError) {
+    if (result?.error) {
       setError('メールアドレスまたはパスワードが正しくありません')
       setLoading(false)
       return
     }
 
-    router.push('/goals')
+    router.push('/gantt')
     router.refresh()
   }
 

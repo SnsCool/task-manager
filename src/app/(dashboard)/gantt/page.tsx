@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Plus, Calendar, CalendarDays, CalendarRange } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { useGoalStore } from '@/stores/goals'
 import { GanttChart } from '@/components/gantt/GanttChart'
@@ -22,7 +22,6 @@ const scaleOptions: { value: GanttTimeScale; label: string; icon: typeof Calenda
 const statusLegend: Goal['status'][] = ['not_started', 'in_progress', 'completed', 'on_hold']
 
 export default function GanttPage() {
-  const supabaseRef = useRef(createClient())
   const { team } = useAuthStore()
   const { goals, setGoals, setLoading, buildTree } = useGoalStore()
   const [scale, setScale] = useState<GanttTimeScale>('day')
@@ -48,12 +47,12 @@ export default function GanttPage() {
   const fetchGoals = useCallback(async () => {
     if (!team) return
     setLoading(true)
-    const { data } = await supabaseRef.current
-      .from('goals')
-      .select('*')
-      .eq('team_id', team.id)
-      .order('created_at', { ascending: true })
-    if (data) setGoals(data)
+    try {
+      const data = await apiFetch<Goal[]>('/api/goals')
+      setGoals(data)
+    } catch {
+      // ignore
+    }
     setLoading(false)
   }, [team, setGoals, setLoading])
 
@@ -61,27 +60,24 @@ export default function GanttPage() {
     fetchGoals()
   }, [fetchGoals])
 
-  const tree = useMemo(() => buildTree(goals), [goals, buildTree])
+  const tree = buildTree(goals)
 
-  // Initialize expanded IDs when goals change
+  // Initialize expanded IDs when tree changes
   useEffect(() => {
     setExpandedIds((prev) => {
-      const currentTree = buildTree(goals)
       const ids = new Set(prev)
-      let changed = false
       const collectExpandable = (nodes: GoalWithChildren[]) => {
         nodes.forEach((n) => {
           if (n.children.length > 0 && !ids.has(n.id)) {
             ids.add(n.id)
-            changed = true
           }
           collectExpandable(n.children)
         })
       }
-      collectExpandable(currentTree)
-      return changed ? ids : prev
+      collectExpandable(tree)
+      return ids
     })
-  }, [goals, buildTree])
+  }, [tree])
 
   // Filter and sort goals
   const filteredGoals = useMemo(() => {
@@ -192,24 +188,33 @@ export default function GanttPage() {
     setExpandedIds(new Set())
   }
 
-  // Drag update handler (optimistic update + Supabase save)
+  // Drag update handler (optimistic update + API save)
   const handleGoalUpdate = useCallback(async (goalId: string, updates: { start_date?: string; due_date?: string }) => {
     // Optimistic update
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, ...updates } : g)))
-    // Save to Supabase
-    await supabaseRef.current.from('goals').update(updates).eq('id', goalId)
+    // Save via API
+    await apiFetch(`/api/goals/${goalId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    })
   }, [goals, setGoals])
 
   // Status change handler
   const handleStatusChange = useCallback(async (goalId: string, status: Goal['status']) => {
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, status } : g)))
-    await supabaseRef.current.from('goals').update({ status }).eq('id', goalId)
+    await apiFetch(`/api/goals/${goalId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
   }, [goals, setGoals])
 
   // Progress change handler
   const handleProgressChange = useCallback(async (goalId: string, progress: number) => {
     setGoals(goals.map((g) => (g.id === goalId ? { ...g, progress } : g)))
-    await supabaseRef.current.from('goals').update({ progress }).eq('id', goalId)
+    await apiFetch(`/api/goals/${goalId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ progress }),
+    })
   }, [goals, setGoals])
 
   // Context menu handler
@@ -220,7 +225,7 @@ export default function GanttPage() {
   // Delete handler
   const handleDelete = useCallback(async (goalId: string) => {
     setGoals(goals.filter((g) => g.id !== goalId))
-    await supabaseRef.current.from('goals').delete().eq('id', goalId)
+    await apiFetch(`/api/goals/${goalId}`, { method: 'DELETE' })
   }, [goals, setGoals])
 
   // Toggle status/priority filters

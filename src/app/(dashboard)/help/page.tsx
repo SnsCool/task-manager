@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Search, BookOpen, ChevronDown, ChevronRight } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { Header } from '@/components/layout/Header'
 import type { HelpArticle } from '@/types'
 
@@ -16,21 +16,21 @@ const categoryLabels: Record<string, string> = {
 }
 
 export default function HelpPage() {
-  const supabase = createClient()
   const [articles, setArticles] = useState<HelpArticle[]>([])
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('help_articles')
-        .select('*')
-        .order('sort_order')
-      if (data) setArticles(data)
+    const fetchArticles = async () => {
+      try {
+        const data = await apiFetch<HelpArticle[]>('/api/help-articles')
+        setArticles(data)
+      } catch {
+        // ignore
+      }
     }
-    fetch()
-  }, [supabase])
+    fetchArticles()
+  }, [])
 
   const filtered = articles.filter(
     (a) =>

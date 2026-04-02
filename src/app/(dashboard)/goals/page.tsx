@@ -2,15 +2,15 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Plus } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { useGoalStore } from '@/stores/goals'
 import { GoalTree } from '@/components/goals/GoalTree'
 import { GoalForm } from '@/components/goals/GoalForm'
 import { Header } from '@/components/layout/Header'
+import type { Goal } from '@/types'
 
 export default function GoalsPage() {
-  const supabase = createClient()
   const { team } = useAuthStore()
   const { goals, setGoals, setLoading, buildTree } = useGoalStore()
   const [showForm, setShowForm] = useState(false)
@@ -19,14 +19,14 @@ export default function GoalsPage() {
   const fetchGoals = useCallback(async () => {
     if (!team) return
     setLoading(true)
-    const { data } = await supabase
-      .from('goals')
-      .select('*')
-      .eq('team_id', team.id)
-      .order('created_at', { ascending: true })
-    if (data) setGoals(data)
+    try {
+      const data = await apiFetch<Goal[]>('/api/goals')
+      setGoals(data)
+    } catch {
+      // ignore
+    }
     setLoading(false)
-  }, [team, supabase, setGoals, setLoading])
+  }, [team, setGoals, setLoading])
 
   useEffect(() => {
     fetchGoals()

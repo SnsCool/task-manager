@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { signIn } from 'next-auth/react'
 import { Target } from 'lucide-react'
 
 export default function SignupPage() {
@@ -13,27 +13,44 @@ export default function SignupPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
-    })
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, fullName }),
+      })
 
-    if (authError) {
-      setError(authError.message)
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.error || '登録に失敗しました')
+        setLoading(false)
+        return
+      }
+
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError('登録後のログインに失敗しました')
+        setLoading(false)
+        return
+      }
+
+      router.push('/gantt')
+      router.refresh()
+    } catch {
+      setError('サーバーエラーが発生しました')
       setLoading(false)
-      return
     }
-
-    router.push('/goals')
-    router.refresh()
   }
 
   return (

@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { Save, Building2, Link, Slack, Calendar, Mail, MessageSquare } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { Header } from '@/components/layout/Header'
+import type { Integration } from '@/types'
 
 const integrationsList = [
   { name: 'Slack', icon: Slack, description: 'チャンネルに通知を送信' },
@@ -13,7 +14,6 @@ const integrationsList = [
 ]
 
 export default function SettingsPage() {
-  const supabase = createClient()
   const { user, team } = useAuthStore()
   const [teamName, setTeamName] = useState(team?.name || '')
   const [saving, setSaving] = useState(false)
@@ -36,26 +36,27 @@ export default function SettingsPage() {
 
     // Fetch Discord integration
     if (team) {
-      supabase
-        .from('integrations')
-        .select('*')
-        .eq('team_id', team.id)
-        .eq('service_name', 'discord')
-        .single()
-        .then(({ data }) => {
+      apiFetch<Integration>('/api/integrations/discord')
+        .then((data) => {
           if (data) {
             setDiscordWebhookUrl((data.config as Record<string, string>)?.webhook_url || '')
             setDiscordConnected(data.is_connected)
           }
         })
+        .catch(() => {
+          // No discord integration yet
+        })
     }
-  }, [team, user, supabase])
+  }, [team, user])
 
   const saveTeam = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!team || !teamName.trim()) return
     setSaving(true)
-    await supabase.from('teams').update({ name: teamName.trim() }).eq('id', team.id)
+    await apiFetch('/api/teams', {
+      method: 'PATCH',
+      body: JSON.stringify({ name: teamName.trim() }),
+    })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -65,7 +66,10 @@ export default function SettingsPage() {
     e.preventDefault()
     if (!user || !profileName.trim()) return
     setProfileSaving(true)
-    await supabase.from('profiles').update({ full_name: profileName.trim() }).eq('id', user.id)
+    await apiFetch(`/api/members/${user.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ full_name: profileName.trim() }),
+    })
     setProfileSaving(false)
     setProfileSaved(true)
     setTimeout(() => setProfileSaved(false), 2000)
@@ -76,30 +80,13 @@ export default function SettingsPage() {
     if (!team) return
     setDiscordSaving(true)
 
-    // Upsert the integration
-    const { data: existing } = await supabase
-      .from('integrations')
-      .select('id')
-      .eq('team_id', team.id)
-      .eq('service_name', 'discord')
-      .single()
-
-    if (existing) {
-      await supabase
-        .from('integrations')
-        .update({
-          config: { webhook_url: discordWebhookUrl },
-          is_connected: !!discordWebhookUrl,
-        })
-        .eq('id', existing.id)
-    } else {
-      await supabase.from('integrations').insert({
-        team_id: team.id,
-        service_name: 'discord',
-        config: { webhook_url: discordWebhookUrl },
+    await apiFetch('/api/integrations/discord', {
+      method: 'PUT',
+      body: JSON.stringify({
+        webhook_url: discordWebhookUrl,
         is_connected: !!discordWebhookUrl,
-      })
-    }
+      }),
+    })
 
     setDiscordConnected(!!discordWebhookUrl)
     setDiscordSaving(false)

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import type { Goal } from '@/types'
 
@@ -23,7 +23,6 @@ export function GoalForm({ parentId = null, goal = null, onClose, onSaved }: Goa
   const [completionCriteria, setCompletionCriteria] = useState(goal?.completion_criteria || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const supabase = createClient()
   const { user, team } = useAuthStore()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,84 +31,41 @@ export function GoalForm({ parentId = null, goal = null, onClose, onSaved }: Goa
     setLoading(true)
     setError('')
 
-    if (isEditing && goal) {
-      const { error: updateError } = await supabase
-        .from('goals')
-        .update({
-          title,
-          description: description || null,
-          priority,
-          start_date: startDate || null,
-          due_date: dueDate || null,
-          completion_criteria: completionCriteria || null,
+    try {
+      if (isEditing && goal) {
+        await apiFetch(`/api/goals/${goal.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title,
+            description: description || null,
+            priority,
+            start_date: startDate || null,
+            due_date: dueDate || null,
+            completion_criteria: completionCriteria || null,
+          }),
         })
-        .eq('id', goal.id)
-
-      if (updateError) {
-        setError(updateError.message)
-        setLoading(false)
-        return
-      }
-
-      await supabase.from('goal_activities').insert({
-        goal_id: goal.id,
-        profile_id: user.id,
-        action: 'updated',
-        details: { fields: ['title', 'description', 'priority', 'due_date', 'completion_criteria'] },
-      })
-    } else {
-      let parentPath = ''
-      let depth = 0
-
-      if (parentId) {
-        const { data: parent } = await supabase
-          .from('goals')
-          .select('path, depth')
-          .eq('id', parentId)
-          .single()
-        if (parent) {
-          parentPath = parent.path
-          depth = parent.depth + 1
-        }
-      }
-
-      const { data: newGoal, error: insertError } = await supabase
-        .from('goals')
-        .insert({
-          team_id: team.id,
-          parent_id: parentId,
-          title,
-          description: description || null,
-          priority,
-          start_date: startDate || null,
-          due_date: dueDate || null,
-          completion_criteria: completionCriteria || null,
-          created_by: user.id,
-          depth,
-        })
-        .select()
-        .single()
-
-      if (insertError) {
-        setError(insertError.message)
-        setLoading(false)
-        return
-      }
-
-      if (newGoal) {
-        const path = parentPath ? `${parentPath}.${newGoal.id}` : newGoal.id
-        await supabase.from('goals').update({ path }).eq('id', newGoal.id)
-
-        await supabase.from('goal_activities').insert({
-          goal_id: newGoal.id,
-          profile_id: user.id,
-          action: 'created',
+      } else {
+        await apiFetch('/api/goals', {
+          method: 'POST',
+          body: JSON.stringify({
+            title,
+            description: description || null,
+            priority,
+            start_date: startDate || null,
+            due_date: dueDate || null,
+            completion_criteria: completionCriteria || null,
+            parent_id: parentId,
+          }),
         })
       }
+
+      setLoading(false)
+      onSaved()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '保存に失敗しました'
+      setError(message)
+      setLoading(false)
     }
-
-    setLoading(false)
-    onSaved()
   }
 
   return (

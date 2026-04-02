@@ -1,0 +1,241 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String   @unique
+  hashedPassword String   @map("hashed_password")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  profile Profile?
+
+  @@map("users")
+}
+
+model Team {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  logoUrl   String?  @map("logo_url")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  profiles        Profile[]
+  goals           Goal[]
+  dailyTasks      DailyTask[]
+  notifications   Notification[]
+  integrations    Integration[]
+  teamInvitations TeamInvitation[]
+
+  @@map("teams")
+}
+
+model Profile {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  teamId    String?  @map("team_id") @db.Uuid
+  fullName  String   @map("full_name")
+  email     String
+  avatarUrl String?  @map("avatar_url")
+  role      String   @default("member")
+  managerId String?  @map("manager_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team    Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  manager Profile? @relation("ManagerRelation", fields: [managerId], references: [id], onDelete: SetNull)
+
+  directReports        Profile[]        @relation("ManagerRelation")
+  createdGoals         Goal[]           @relation("GoalCreator")
+  goalAssignments      GoalAssignee[]   @relation("AssigneeProfile")
+  assignedByMe         GoalAssignee[]   @relation("AssignedByProfile")
+  goalComments         GoalComment[]
+  goalActivities       GoalActivity[]
+  dailyTasks           DailyTask[]
+  notifications        Notification[]   @relation("NotificationRecipient")
+  relatedNotifications Notification[]   @relation("NotificationRelatedProfile")
+  invitationsSent      TeamInvitation[] @relation("InvitedByProfile")
+
+  @@index([teamId], map: "idx_profiles_team_id")
+  @@index([managerId], map: "idx_profiles_manager_id")
+  @@map("profiles")
+}
+
+model TeamInvitation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  email     String
+  role      String   @default("member")
+  token     String   @default(dbgenerated("encode(gen_random_bytes(32), 'hex')"))
+  invitedBy String   @map("invited_by") @db.Uuid
+  status    String   @default("pending")
+  expiresAt DateTime @default(dbgenerated("now() + interval '7 days'")) @map("expires_at") @db.Timestamptz()
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  team             Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedByProfile Profile @relation("InvitedByProfile", fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  @@index([token], map: "idx_team_invitations_token")
+  @@index([email], map: "idx_team_invitations_email")
+  @@map("team_invitations")
+}
+
+model Goal {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId             String    @map("team_id") @db.Uuid
+  parentId           String?   @map("parent_id") @db.Uuid
+  title              String
+  description        String?
+  status             String    @default("not_started")
+  priority           String    @default("medium")
+  startDate          DateTime? @map("start_date") @db.Date
+  dueDate            DateTime? @map("due_date") @db.Date
+  completionCriteria String?   @map("completion_criteria")
+  progress           Int       @default(0)
+  createdBy          String    @map("created_by") @db.Uuid
+  path               String    @default("")
+  depth              Int       @default(0)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  parent  Goal?   @relation("GoalHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  creator Profile @relation("GoalCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  children      Goal[]         @relation("GoalHierarchy")
+  assignees     GoalAssignee[]
+  comments      GoalComment[]
+  activities    GoalActivity[]
+  dailyTasks    DailyTask[]
+  notifications Notification[]
+
+  @@index([teamId], map: "idx_goals_team_id")
+  @@index([parentId], map: "idx_goals_parent_id")
+  @@index([createdBy], map: "idx_goals_created_by")
+  @@index([path], map: "idx_goals_path")
+  @@index([startDate, dueDate], map: "idx_goals_start_date_due_date")
+  @@index([teamId, status], map: "idx_goals_team_status")
+  @@map("goals")
+}
+
+model GoalAssignee {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId     String   @map("goal_id") @db.Uuid
+  profileId  String   @map("profile_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz()
+  assignedBy String   @map("assigned_by") @db.Uuid
+
+  goal              Goal    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  profile           Profile @relation("AssigneeProfile", fields: [profileId], references: [id], onDelete: Cascade)
+  assignedByProfile Profile @relation("AssignedByProfile", fields: [assignedBy], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, profileId])
+  @@index([goalId], map: "idx_goal_assignees_goal_id")
+  @@index([profileId], map: "idx_goal_assignees_profile_id")
+  @@map("goal_assignees")
+}
+
+model GoalComment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId    String   @map("goal_id") @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  content   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  goal    Goal    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([goalId], map: "idx_goal_comments_goal_id")
+  @@map("goal_comments")
+}
+
+model GoalActivity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId    String   @map("goal_id") @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  action    String
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  goal    Goal    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([goalId], map: "idx_goal_activities_goal_id")
+  @@map("goal_activities")
+}
+
+model DailyTask {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  profileId   String   @map("profile_id") @db.Uuid
+  title       String
+  isCompleted Boolean  @default(false) @map("is_completed")
+  goalId      String?  @map("goal_id") @db.Uuid
+  dueDate     DateTime @default(dbgenerated("CURRENT_DATE")) @map("due_date") @db.Date
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  goal    Goal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, dueDate], map: "idx_daily_tasks_profile_date")
+  @@map("daily_tasks")
+}
+
+model Notification {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId           String   @map("team_id") @db.Uuid
+  profileId        String   @map("profile_id") @db.Uuid
+  type             String
+  title            String
+  message          String
+  isRead           Boolean  @default(false) @map("is_read")
+  relatedGoalId    String?  @map("related_goal_id") @db.Uuid
+  relatedProfileId String?  @map("related_profile_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  profile        Profile  @relation("NotificationRecipient", fields: [profileId], references: [id], onDelete: Cascade)
+  relatedGoal    Goal?    @relation(fields: [relatedGoalId], references: [id], onDelete: SetNull)
+  relatedProfile Profile? @relation("NotificationRelatedProfile", fields: [relatedProfileId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, isRead], map: "idx_notifications_profile_id")
+  @@map("notifications")
+}
+
+model Integration {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  serviceName String   @map("service_name")
+  isConnected Boolean  @default(false) @map("is_connected")
+  config      Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("integrations")
+}
+
+model HelpArticle {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String
+  content   String
+  category  String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("help_articles")
+}

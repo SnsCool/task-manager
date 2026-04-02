@@ -6,7 +6,7 @@ import {
   ArrowLeft, Edit2, Trash2, Plus, Send,
   Target, Calendar, CheckCircle2, Clock, Pause, User,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { GoalForm } from '@/components/goals/GoalForm'
 import type { Goal, GoalDetail, Profile } from '@/types'
@@ -21,7 +21,6 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 export default function GoalDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const supabase = createClient()
   const { user, team } = useAuthStore()
   const [goal, setGoal] = useState<GoalDetail | null>(null)
   const [subGoals, setSubGoals] = useState<Goal[]>([])
@@ -32,28 +31,16 @@ export default function GoalDetailPage() {
   const [sendingComment, setSendingComment] = useState(false)
 
   const fetchGoal = useCallback(async () => {
-    const { data } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        assignees:goal_assignees(*, profiles(*)),
-        goal_comments(*, profiles(*)),
-        goal_activities(*, profiles(*))
-      `)
-      .eq('id', id)
-      .single()
-
-    if (data) {
-      setGoal(data as unknown as GoalDetail)
+    try {
+      const data = await apiFetch<GoalDetail>(`/api/goals/${id}`)
+      setGoal(data)
+      // Sub goals are children with parent_id = id; fetch from goals list
+      const allGoals = await apiFetch<Goal[]>('/api/goals')
+      setSubGoals(allGoals.filter((g) => g.parent_id === id))
+    } catch {
+      // ignore
     }
-
-    const { data: subs } = await supabase
-      .from('goals')
-      .select('*')
-      .eq('parent_id', id)
-      .order('created_at')
-    if (subs) setSubGoals(subs)
-  }, [id, supabase])
+  }, [id])
 
   useEffect(() => {
     fetchGoal()
@@ -62,63 +49,48 @@ export default function GoalDetailPage() {
   useEffect(() => {
     if (!team) return
     const fetchMembers = async () => {
-      const { data } = await supabase.from('profiles').select('*').eq('team_id', team.id)
-      if (data) setTeamMembers(data)
+      try {
+        const data = await apiFetch<Profile[]>('/api/members')
+        setTeamMembers(data)
+      } catch {
+        // ignore
+      }
     }
     fetchMembers()
-  }, [team, supabase])
+  }, [team])
 
   const updateStatus = async (status: string) => {
     if (!goal || !user) return
-    const oldStatus = goal.status
-    await supabase.from('goals').update({ status }).eq('id', goal.id)
-    await supabase.from('goal_activities').insert({
-      goal_id: goal.id,
-      profile_id: user.id,
-      action: 'status_changed',
-      details: { from: oldStatus, to: status },
+    await apiFetch(`/api/goals/${goal.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     })
     fetchGoal()
   }
 
   const updateProgress = async (progress: number) => {
     if (!goal) return
-    await supabase.from('goals').update({ progress }).eq('id', goal.id)
+    await apiFetch(`/api/goals/${goal.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ progress }),
+    })
     fetchGoal()
   }
 
   const addAssignee = async (profileId: string) => {
     if (!goal || !user) return
-    await supabase.from('goal_assignees').insert({
-      goal_id: goal.id,
-      profile_id: profileId,
-      assigned_by: user.id,
-    })
-    await supabase.from('goal_activities').insert({
-      goal_id: goal.id,
-      profile_id: user.id,
-      action: 'assignee_added',
-      details: { assignee_id: profileId },
-    })
-    await supabase.from('notifications').insert({
-      team_id: team!.id,
-      profile_id: profileId,
-      type: 'goal_assigned',
-      title: 'ゴールに割り当てられました',
-      message: `「${goal.title}」の担当者に追加されました`,
-      related_goal_id: goal.id,
-      related_profile_id: user.id,
+    await apiFetch(`/api/goals/${goal.id}/assignees`, {
+      method: 'POST',
+      body: JSON.stringify({ profile_id: profileId }),
     })
     fetchGoal()
   }
 
   const removeAssignee = async (assigneeId: string) => {
     if (!goal || !user) return
-    await supabase.from('goal_assignees').delete().eq('id', assigneeId)
-    await supabase.from('goal_activities').insert({
-      goal_id: goal.id,
-      profile_id: user.id,
-      action: 'assignee_removed',
+    await apiFetch(`/api/goals/${goal.id}/assignees`, {
+      method: 'DELETE',
+      body: JSON.stringify({ assignee_id: assigneeId }),
     })
     fetchGoal()
   }
@@ -126,15 +98,9 @@ export default function GoalDetailPage() {
   const addComment = async () => {
     if (!comment.trim() || !goal || !user) return
     setSendingComment(true)
-    await supabase.from('goal_comments').insert({
-      goal_id: goal.id,
-      profile_id: user.id,
-      content: comment.trim(),
-    })
-    await supabase.from('goal_activities').insert({
-      goal_id: goal.id,
-      profile_id: user.id,
-      action: 'comment_added',
+    await apiFetch(`/api/goals/${goal.id}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content: comment.trim() }),
     })
     setComment('')
     setSendingComment(false)
@@ -143,7 +109,7 @@ export default function GoalDetailPage() {
 
   const deleteGoal = async () => {
     if (!goal) return
-    await supabase.from('goals').delete().eq('id', goal.id)
+    await apiFetch(`/api/goals/${goal.id}`, { method: 'DELETE' })
     router.push('/goals')
   }
 
@@ -155,7 +121,7 @@ export default function GoalDetailPage() {
     )
   }
 
-  const assignedIds = new Set(goal.assignees?.map((a) => a.profiles.id) || [])
+  const assignedIds = new Set(goal.assignees?.map((a) => (a.profiles || a.profile)?.id).filter(Boolean) || [])
   const unassigned = teamMembers.filter((m) => !assignedIds.has(m.id))
 
   return (

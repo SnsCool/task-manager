@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { Search, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import type { Goal, Profile } from '@/types'
 
@@ -12,7 +12,6 @@ export function Header({ title }: { title: string }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ goals: Goal[]; profiles: Profile[] }>({ goals: [], profiles: [] })
   const router = useRouter()
-  const supabase = createClient()
   const { team } = useAuthStore()
 
   const search = useCallback(
@@ -21,13 +20,14 @@ export function Header({ title }: { title: string }) {
         setResults({ goals: [], profiles: [] })
         return
       }
-      const [goalsRes, profilesRes] = await Promise.all([
-        supabase.from('goals').select('*').eq('team_id', team.id).ilike('title', `%${q}%`).limit(5),
-        supabase.from('profiles').select('*').eq('team_id', team.id).ilike('full_name', `%${q}%`).limit(5),
-      ])
-      setResults({ goals: goalsRes.data || [], profiles: profilesRes.data || [] })
+      try {
+        const data = await apiFetch<{ goals: Goal[]; profiles: Profile[] }>(`/api/search?q=${encodeURIComponent(q)}`)
+        setResults(data)
+      } catch {
+        setResults({ goals: [], profiles: [] })
+      }
     },
-    [team, supabase]
+    [team]
   )
 
   return (

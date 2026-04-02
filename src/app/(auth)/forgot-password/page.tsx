@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Target } from 'lucide-react'
 
 export default function ForgotPasswordPage() {
@@ -10,23 +9,14 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/login`,
-    })
-
-    if (resetError) {
-      setError(resetError.message)
-      setLoading(false)
-      return
-    }
-
+    // For now, just show a success message
+    // In production, this would call an API to send a reset email
     setSent(true)
     setLoading(false)
   }

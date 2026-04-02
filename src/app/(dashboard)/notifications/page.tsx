@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Bell, Check, CheckCheck, Target, Users, MessageSquare } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notifications'
 import { Header } from '@/components/layout/Header'
@@ -18,7 +18,6 @@ const typeIcons: Record<string, React.ElementType> = {
 }
 
 export default function NotificationsPage() {
-  const supabase = createClient()
   const { user } = useAuthStore()
   const { notifications, setNotifications } = useNotificationStore()
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all')
@@ -26,27 +25,32 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (!user) return
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('profile_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(100)
-      if (data) setNotifications(data)
+    const fetchNotifications = async () => {
+      try {
+        const data = await apiFetch<Notification[]>('/api/notifications')
+        setNotifications(data)
+      } catch {
+        // ignore
+      }
     }
-    fetch()
-  }, [user, supabase, setNotifications])
+    fetchNotifications()
+  }, [user, setNotifications])
 
   const markAsRead = async (n: Notification) => {
     if (n.is_read) return
-    await supabase.from('notifications').update({ is_read: true }).eq('id', n.id)
+    await apiFetch('/api/notifications', {
+      method: 'PATCH',
+      body: JSON.stringify({ id: n.id }),
+    })
     setNotifications(notifications.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
   }
 
   const markAllRead = async () => {
     if (!user) return
-    await supabase.from('notifications').update({ is_read: true }).eq('profile_id', user.id).eq('is_read', false)
+    await apiFetch('/api/notifications', {
+      method: 'PATCH',
+      body: JSON.stringify({ mark_all_read: true }),
+    })
     setNotifications(notifications.map((n) => ({ ...n, is_read: true })))
   }
 

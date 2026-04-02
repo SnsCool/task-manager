@@ -2,13 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Plus, Check, Trash2, Link as LinkIcon, Target } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { Header } from '@/components/layout/Header'
 import type { DailyTask, Goal } from '@/types'
 
 export default function ExecutionPage() {
-  const supabase = createClient()
   const { user, team } = useAuthStore()
   const [tasks, setTasks] = useState<(DailyTask & { goals?: Goal | null })[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
@@ -19,15 +18,14 @@ export default function ExecutionPage() {
 
   const fetchTasks = useCallback(async () => {
     if (!user) return
-    const { data } = await supabase
-      .from('daily_tasks')
-      .select('*, goals(*)')
-      .eq('profile_id', user.id)
-      .eq('due_date', today)
-      .order('sort_order')
-    if (data) setTasks(data as (DailyTask & { goals?: Goal | null })[])
+    try {
+      const data = await apiFetch<(DailyTask & { goals?: Goal | null })[]>(`/api/daily-tasks?date=${today}`)
+      setTasks(data)
+    } catch {
+      // ignore
+    }
     setLoading(false)
-  }, [user, supabase, today])
+  }, [user, today])
 
   useEffect(() => {
     fetchTasks()
@@ -36,27 +34,27 @@ export default function ExecutionPage() {
   useEffect(() => {
     if (!team) return
     const fetchGoals = async () => {
-      const { data } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('team_id', team.id)
-        .neq('status', 'completed')
-        .order('title')
-      if (data) setGoals(data)
+      try {
+        const data = await apiFetch<Goal[]>('/api/goals')
+        setGoals(data.filter((g) => g.status !== 'completed'))
+      } catch {
+        // ignore
+      }
     }
     fetchGoals()
-  }, [team, supabase])
+  }, [team])
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newTitle.trim() || !user || !team) return
-    await supabase.from('daily_tasks').insert({
-      team_id: team.id,
-      profile_id: user.id,
-      title: newTitle.trim(),
-      goal_id: newGoalId || null,
-      due_date: today,
-      sort_order: tasks.length,
+    await apiFetch('/api/daily-tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: newTitle.trim(),
+        goal_id: newGoalId || null,
+        due_date: today,
+        sort_order: tasks.length,
+      }),
     })
     setNewTitle('')
     setNewGoalId('')
@@ -64,15 +62,15 @@ export default function ExecutionPage() {
   }
 
   const toggleTask = async (task: DailyTask) => {
-    await supabase
-      .from('daily_tasks')
-      .update({ is_completed: !task.is_completed })
-      .eq('id', task.id)
+    await apiFetch(`/api/daily-tasks/${task.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_completed: !task.is_completed }),
+    })
     fetchTasks()
   }
 
   const deleteTask = async (id: string) => {
-    await supabase.from('daily_tasks').delete().eq('id', id)
+    await apiFetch(`/api/daily-tasks/${id}`, { method: 'DELETE' })
     fetchTasks()
   }
 

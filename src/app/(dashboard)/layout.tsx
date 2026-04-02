@@ -1,16 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { useAuth } from '@/hooks/useAuth'
-import { createClient } from '@/lib/supabase/client'
 import { useNotificationStore } from '@/stores/notifications'
+import { apiFetch } from '@/lib/api-client'
+import type { Notification } from '@/types'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, team, isLoading } = useAuth()
   const router = useRouter()
-  const supabase = createClient()
   const { setNotifications } = useNotificationStore()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [teamName, setTeamName] = useState('')
@@ -24,54 +24,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [isLoading, user, team, router])
 
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const data = await apiFetch<Notification[]>('/api/notifications')
+      setNotifications(data)
+    } catch { /* ignore */ }
+  }, [setNotifications])
+
   useEffect(() => {
     if (!team) return
-    const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('profile_id', user!.id)
-        .order('created_at', { ascending: false })
-        .limit(50)
-      if (data) setNotifications(data)
-    }
     fetchNotifications()
 
-    const channel = supabase
-      .channel('notifications')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'notifications',
-        filter: `profile_id=eq.${user!.id}`,
-      }, () => {
-        fetchNotifications()
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [team]) // eslint-disable-line react-hooks/exhaustive-deps
+    const interval = setInterval(fetchNotifications, 30000)
+    return () => clearInterval(interval)
+  }, [team, fetchNotifications])
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!teamName.trim() || !user) return
+    if (!teamName.trim()) return
     setCreating(true)
 
-    const teamId = crypto.randomUUID()
-
-    const { error: insertError } = await supabase
-      .from('teams')
-      .insert({ id: teamId, name: teamName.trim() })
-
-    if (!insertError) {
-      await supabase
-        .from('profiles')
-        .update({ team_id: teamId, role: 'admin' })
-        .eq('id', user.id)
-
+    try {
+      await apiFetch('/api/teams', {
+        method: 'POST',
+        body: JSON.stringify({ name: teamName.trim() }),
+      })
       window.location.reload()
+    } catch {
+      setCreating(false)
     }
-    setCreating(false)
   }
 
   if (isLoading) {

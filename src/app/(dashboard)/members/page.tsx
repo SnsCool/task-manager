@@ -2,13 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Users, Mail, Search, ChevronRight, UserPlus, X } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import { Header } from '@/components/layout/Header'
 import type { Profile, TeamInvitation } from '@/types'
 
 export default function MembersPage() {
-  const supabase = createClient()
   const { user, team } = useAuthStore()
   const [members, setMembers] = useState<Profile[]>([])
   const [invitations, setInvitations] = useState<TeamInvitation[]>([])
@@ -21,13 +20,17 @@ export default function MembersPage() {
 
   const fetchData = useCallback(async () => {
     if (!team) return
-    const [membersRes, invitesRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('team_id', team.id).order('full_name'),
-      supabase.from('team_invitations').select('*').eq('team_id', team.id).eq('status', 'pending'),
-    ])
-    if (membersRes.data) setMembers(membersRes.data)
-    if (invitesRes.data) setInvitations(invitesRes.data)
-  }, [team, supabase])
+    try {
+      const [membersData, invitesData] = await Promise.all([
+        apiFetch<Profile[]>('/api/members'),
+        apiFetch<TeamInvitation[]>('/api/invitations'),
+      ])
+      setMembers(membersData)
+      setInvitations(invitesData)
+    } catch {
+      // ignore
+    }
+  }, [team])
 
   useEffect(() => {
     fetchData()
@@ -38,11 +41,12 @@ export default function MembersPage() {
     if (!inviteEmail.trim() || !user || !team) return
     setInviting(true)
 
-    await supabase.from('team_invitations').insert({
-      team_id: team.id,
-      email: inviteEmail.trim(),
-      role: inviteRole,
-      invited_by: user.id,
+    await apiFetch('/api/invitations', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: inviteEmail.trim(),
+        role: inviteRole,
+      }),
     })
 
     setInviteEmail('')
@@ -52,7 +56,10 @@ export default function MembersPage() {
   }
 
   const updateManager = async (memberId: string, managerId: string | null) => {
-    await supabase.from('profiles').update({ manager_id: managerId }).eq('id', memberId)
+    await apiFetch(`/api/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ manager_id: managerId }),
+    })
     fetchData()
     setSelectedMember(null)
   }

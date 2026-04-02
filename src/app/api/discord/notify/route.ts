@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
 
 const STATUS_COLORS: Record<string, number> = {
-  not_started: 0x9ca3af, // gray
-  in_progress: 0x3b82f6, // blue
-  completed: 0x22c55e,   // green
-  on_hold: 0xeab308,     // yellow
+  not_started: 0x9ca3af,
+  in_progress: 0x3b82f6,
+  completed: 0x22c55e,
+  on_hold: 0xeab308,
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -30,24 +30,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Fetch webhook URL from integrations table
-    const supabase = await createClient()
-    const { data: integration } = await supabase
-      .from('integrations')
-      .select('config')
-      .eq('team_id', team_id)
-      .eq('service_name', 'discord')
-      .eq('is_connected', true)
-      .single()
+    const integration = await prisma.integration.findFirst({
+      where: { teamId: team_id, serviceName: 'discord', isConnected: true },
+    })
 
     if (!integration?.config || !(integration.config as Record<string, string>).webhook_url) {
-      // No Discord integration configured; silently skip
       return NextResponse.json({ skipped: true })
     }
 
     const webhookUrl = (integration.config as Record<string, string>).webhook_url
 
-    // Build embed
     const fields = []
 
     fields.push({
@@ -85,13 +77,10 @@ export async function POST(request: Request) {
       title: `${EVENT_TITLES[event] || event}: ${goal.title}`,
       color: STATUS_COLORS[goal.status] || 0x6b7280,
       fields,
-      footer: {
-        text: `by ${user_name || 'Unknown'}`,
-      },
+      footer: { text: `by ${user_name || 'Unknown'}` },
       timestamp: new Date().toISOString(),
     }
 
-    // Send to Discord
     const discordRes = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

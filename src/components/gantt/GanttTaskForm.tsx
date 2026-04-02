@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth'
 import type { Goal } from '@/types'
 
@@ -23,7 +23,6 @@ export function GanttTaskForm({ parentId = null, goal = null, onClose, onSaved }
   const [status, setStatus] = useState(goal?.status || 'not_started')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const supabase = createClient()
   const { user, team } = useAuthStore()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,120 +38,76 @@ export function GanttTaskForm({ parentId = null, goal = null, onClose, onSaved }
     setLoading(true)
     setError('')
 
-    if (isEditing && goal) {
-      const { error: updateError } = await supabase
-        .from('goals')
-        .update({
-          title,
-          description: description || null,
-          priority,
-          status,
-          start_date: startDate || null,
-          due_date: dueDate || null,
+    try {
+      if (isEditing && goal) {
+        await apiFetch(`/api/goals/${goal.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title,
+            description: description || null,
+            priority,
+            status,
+            start_date: startDate || null,
+            due_date: dueDate || null,
+          }),
         })
-        .eq('id', goal.id)
 
-      if (updateError) {
-        setError(updateError.message)
-        setLoading(false)
-        return
-      }
+        // Send Discord notification on status change
+        if (goal.status !== status) {
+          try {
+            await fetch('/api/discord/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                team_id: team.id,
+                event: 'status_changed',
+                goal: { ...goal, title, status, start_date: startDate, due_date: dueDate },
+                old_status: goal.status,
+                user_name: user.full_name,
+              }),
+            })
+          } catch {
+            // Non-critical: don't block on Discord failure
+          }
+        }
+      } else {
+        await apiFetch('/api/goals', {
+          method: 'POST',
+          body: JSON.stringify({
+            title,
+            description: description || null,
+            priority,
+            status,
+            start_date: startDate || null,
+            due_date: dueDate || null,
+            parent_id: parentId,
+          }),
+        })
 
-      // Log activity
-      await supabase.from('goal_activities').insert({
-        goal_id: goal.id,
-        profile_id: user.id,
-        action: goal.status !== status ? 'status_changed' : 'updated',
-        details: goal.status !== status
-          ? { from: goal.status, to: status }
-          : { fields: ['title', 'description', 'priority', 'start_date', 'due_date'] },
-      })
-
-      // Send Discord notification on status change
-      if (goal.status !== status) {
+        // Send Discord notification
         try {
           await fetch('/api/discord/notify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               team_id: team.id,
-              event: 'status_changed',
-              goal: { ...goal, title, status, start_date: startDate, due_date: dueDate },
-              old_status: goal.status,
+              event: 'created',
+              goal: { title, status, priority, start_date: startDate, due_date: dueDate },
               user_name: user.full_name,
             }),
           })
         } catch {
-          // Non-critical: don't block on Discord failure
-        }
-      }
-    } else {
-      let parentPath = ''
-      let depth = 0
-
-      if (parentId) {
-        const { data: parent } = await supabase
-          .from('goals')
-          .select('path, depth')
-          .eq('id', parentId)
-          .single()
-        if (parent) {
-          parentPath = parent.path
-          depth = parent.depth + 1
+          // Non-critical
         }
       }
 
-      const goalId = crypto.randomUUID()
-      const path = parentPath ? `${parentPath}.${goalId}` : goalId
-
-      const { error: insertError } = await supabase
-        .from('goals')
-        .insert({
-          id: goalId,
-          team_id: team.id,
-          parent_id: parentId,
-          title,
-          description: description || null,
-          priority,
-          status,
-          start_date: startDate || null,
-          due_date: dueDate || null,
-          created_by: user.id,
-          depth,
-          path,
-        })
-
-      if (insertError) {
-        setError(insertError.message)
-        setLoading(false)
-        return
-      }
-
-      await supabase.from('goal_activities').insert({
-        goal_id: goalId,
-        profile_id: user.id,
-        action: 'created',
-      })
-
-      // Send Discord notification
-      try {
-        await fetch('/api/discord/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            team_id: team.id,
-            event: 'created',
-            goal: { id: goalId, title, status, priority, start_date: startDate, due_date: dueDate },
-            user_name: user.full_name,
-          }),
-        })
-      } catch {
-        // Non-critical
-      }
+      setLoading(false)
+      onSaved()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '保存に失敗しました'
+      setError(message)
+      setLoading(false)
     }
-
-    setLoading(false)
-    onSaved()
   }
 
   return (
