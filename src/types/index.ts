@@ -50,6 +50,8 @@ export type TeamInvitation = {
   createdAt?: string
 }
 
+export type GoalType = 'kgi' | 'kpi' | 'issue' | 'task'
+
 export type Goal = {
   id: string
   team_id: string
@@ -67,6 +69,15 @@ export type Goal = {
   depth: number
   created_at: string
   updated_at: string
+  // KPI階層フィールド
+  goal_type: GoalType
+  metric_name: string | null
+  metric_unit: string | null
+  metric_target: number | null
+  metric_current: number | null
+  period_type: 'monthly' | 'quarterly' | 'yearly' | 'custom' | null
+  period_start: string | null
+  period_end: string | null
   // Prisma camelCase aliases
   teamId?: string
   parentId?: string | null
@@ -76,6 +87,14 @@ export type Goal = {
   createdBy?: string
   createdAt?: string
   updatedAt?: string
+  goalType?: GoalType
+  metricName?: string | null
+  metricUnit?: string | null
+  metricTarget?: number | null
+  metricCurrent?: number | null
+  periodType?: string | null
+  periodStart?: string | null
+  periodEnd?: string | null
 }
 
 export type GoalAssignee = {
@@ -130,6 +149,14 @@ export type DailyTask = {
   sort_order: number
   created_at: string
   updated_at: string
+  // KPI紐付け・実行管理フィールド
+  kpi_goal_id: string | null
+  estimated_hours: number | null
+  actual_hours: number | null
+  completed_at: string | null
+  source: 'manual' | 'discord' | 'meet' | 'ai_suggest'
+  source_id: string | null
+  confidence: number | null
   // Prisma camelCase aliases
   teamId?: string
   profileId?: string
@@ -139,6 +166,11 @@ export type DailyTask = {
   sortOrder?: number
   createdAt?: string
   updatedAt?: string
+  kpiGoalId?: string | null
+  estimatedHours?: number | null
+  actualHours?: number | null
+  completedAt?: string | null
+  sourceId?: string | null
   goal?: Goal | null
   goals?: Goal | null
 }
@@ -227,6 +259,54 @@ export type DailyTaskInsert = Partial<DailyTask> & { title: string }
 export type DailyTaskUpdate = Partial<DailyTask>
 export type ProfileUpdate = Partial<Profile>
 export type NotificationInsert = Partial<Notification> & { title: string; message: string; type: Notification['type'] }
+
+// KPI階層型
+export type MetricSnapshot = {
+  id: string
+  goal_id: string
+  value: number
+  recorded_at: string
+  source: string | null
+  recorded_by: string | null
+  note: string | null
+  goalId?: string
+  recordedAt?: string
+  recordedBy?: string | null
+}
+
+export type ExecutionLog = {
+  id: string
+  task_id: string | null
+  profile_id: string
+  team_id: string
+  log_type: 'progress' | 'blocker' | 'completion' | 'note'
+  content: string
+  source: string
+  source_id: string | null
+  source_url: string | null
+  related_goal_id: string | null
+  metric_impact: number | null
+  created_at: string
+  taskId?: string | null
+  profileId?: string
+  teamId?: string
+  logType?: string
+  sourceId?: string | null
+  sourceUrl?: string | null
+  relatedGoalId?: string | null
+  metricImpact?: number | null
+  createdAt?: string
+  profile?: Profile
+  task?: DailyTask | null
+  relatedGoal?: Goal | null
+}
+
+// KPIツリー用の拡張型
+export type KpiTreeNode = Goal & {
+  children: KpiTreeNode[]
+  assignees?: (GoalAssignee & { profile?: Profile })[]
+  metricSnapshots?: MetricSnapshot[]
+}
 
 // Gantt Chart types
 export type GanttTimeScale = 'day' | 'week' | 'month'

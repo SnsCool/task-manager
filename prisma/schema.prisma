@@ -33,6 +33,7 @@ model Team {
   notifications   Notification[]
   integrations    Integration[]
   teamInvitations TeamInvitation[]
+  executionLogs   ExecutionLog[]
 
   @@map("teams")
 }
@@ -63,6 +64,7 @@ model Profile {
   notifications        Notification[]   @relation("NotificationRecipient")
   relatedNotifications Notification[]   @relation("NotificationRelatedProfile")
   invitationsSent      TeamInvitation[] @relation("InvitedByProfile")
+  executionLogs        ExecutionLog[]
 
   @@index([teamId], map: "idx_profiles_team_id")
   @@index([managerId], map: "idx_profiles_manager_id")
@@ -106,16 +108,28 @@ model Goal {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
+  // KPI階層フィールド
+  goalType       String  @default("task") @map("goal_type") // "kgi" | "kpi" | "issue" | "task"
+  metricName     String? @map("metric_name")                // 指標名（例: "月次売上", "解約率"）
+  metricUnit     String? @map("metric_unit")                // 単位（例: "円", "%", "件"）
+  metricTarget   Float?  @map("metric_target")              // 目標値
+  metricCurrent  Float?  @map("metric_current")             // 現在値
+  periodType     String? @map("period_type")                // "monthly" | "quarterly" | "yearly" | "custom"
+  periodStart    DateTime? @map("period_start") @db.Date
+  periodEnd      DateTime? @map("period_end") @db.Date
+
   team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   parent  Goal?   @relation("GoalHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
   creator Profile @relation("GoalCreator", fields: [createdBy], references: [id], onDelete: Cascade)
 
-  children      Goal[]         @relation("GoalHierarchy")
-  assignees     GoalAssignee[]
-  comments      GoalComment[]
-  activities    GoalActivity[]
-  dailyTasks    DailyTask[]
-  notifications Notification[]
+  children        Goal[]           @relation("GoalHierarchy")
+  assignees       GoalAssignee[]
+  comments        GoalComment[]
+  activities      GoalActivity[]
+  dailyTasks      DailyTask[]
+  notifications   Notification[]
+  metricSnapshots MetricSnapshot[]
+  executionLogs   ExecutionLog[]   @relation("ExecutionLogRelatedGoal")
 
   @@index([teamId], map: "idx_goals_team_id")
   @@index([parentId], map: "idx_goals_parent_id")
@@ -123,6 +137,7 @@ model Goal {
   @@index([path], map: "idx_goals_path")
   @@index([startDate, dueDate], map: "idx_goals_start_date_due_date")
   @@index([teamId, status], map: "idx_goals_team_status")
+  @@index([teamId, goalType], map: "idx_goals_team_goal_type")
   @@map("goals")
 }
 
@@ -185,9 +200,20 @@ model DailyTask {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
+  // KPI紐付け・実行管理フィールド
+  kpiGoalId      String?   @map("kpi_goal_id") @db.Uuid   // 直接KPIへの紐付け
+  estimatedHours Float?    @map("estimated_hours")
+  actualHours    Float?    @map("actual_hours")
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz()
+  source         String    @default("manual")              // "manual" | "discord" | "meet" | "ai_suggest"
+  sourceId       String?   @map("source_id")
+  confidence     Float?                                    // AI生成時の確信度(0-1)
+
   team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   goal    Goal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  executionLogs ExecutionLog[]
 
   @@index([profileId, dueDate], map: "idx_daily_tasks_profile_date")
   @@map("daily_tasks")
@@ -238,4 +264,47 @@ model HelpArticle {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@map("help_articles")
+}
+
+model MetricSnapshot {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId     String   @map("goal_id") @db.Uuid
+  value      Float
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz()
+  source     String?  // "manual" | "api" | "discord" | "sheet"
+  recordedBy String?  @map("recorded_by") @db.Uuid
+  note       String?
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId, recordedAt], map: "idx_metric_snapshots_goal_recorded")
+  @@map("metric_snapshots")
+}
+
+model ExecutionLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String?  @map("task_id") @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  logType   String   @map("log_type") // "progress" | "blocker" | "completion" | "note"
+  content   String
+
+  source    String   @default("manual") // "manual" | "discord" | "meet" | "api"
+  sourceId  String?  @map("source_id")
+  sourceUrl String?  @map("source_url")
+
+  relatedGoalId String? @map("related_goal_id") @db.Uuid
+  metricImpact  Float?  @map("metric_impact")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  task        DailyTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  profile     Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  team        Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  relatedGoal Goal?      @relation("ExecutionLogRelatedGoal", fields: [relatedGoalId], references: [id], onDelete: SetNull)
+
+  @@index([taskId], map: "idx_execution_logs_task_id")
+  @@index([profileId, createdAt], map: "idx_execution_logs_profile_created")
+  @@index([teamId, createdAt], map: "idx_execution_logs_team_created")
+  @@map("execution_logs")
 }

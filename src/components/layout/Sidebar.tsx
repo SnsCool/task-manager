@@ -13,12 +13,16 @@ import {
   ChevronLeft,
   ChevronRight,
   GanttChartSquare,
+  LayoutDashboard,
+  GitBranch,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useNotificationStore } from '@/stores/notifications'
 
 const navItems = [
+  { href: '/dashboard', label: 'ダッシュボード', icon: LayoutDashboard },
+  { href: '/kpi-tree', label: 'KPIツリー', icon: GitBranch },
   { href: '/gantt', label: 'ガントチャート', icon: GanttChartSquare },
   { href: '/goals', label: 'ゴール', icon: Target },
   { href: '/execution', label: '実行', icon: ListTodo },

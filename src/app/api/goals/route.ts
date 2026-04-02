@@ -22,11 +22,32 @@ export async function POST(request: NextRequest) {
 
     let path = ''
     let depth = 0
+    let goalType = body.goal_type || 'task'
+
     if (body.parent_id) {
       const parent = await prisma.goal.findUnique({ where: { id: body.parent_id } })
       if (parent) {
         path = parent.path ? `${parent.path}.${parent.id}` : parent.id
         depth = parent.depth + 1
+
+        // 構造強制: 親のgoal_typeに基づいて子のgoal_typeを自動決定
+        const childTypeMap: Record<string, string> = {
+          kgi: 'kpi',
+          kpi: 'issue',
+          issue: 'task',
+        }
+        const expectedType = childTypeMap[parent.goalType]
+        if (expectedType) {
+          goalType = expectedType
+        }
+
+        // バリデーション: task の下には子を作れない
+        if (parent.goalType === 'task') {
+          return NextResponse.json(
+            { error: 'タスクの下にはサブ要素を作成できません' },
+            { status: 400 }
+          )
+        }
       }
     }
 
@@ -45,6 +66,13 @@ export async function POST(request: NextRequest) {
         createdBy: profile.id,
         path,
         depth,
+        goalType,
+        metricName: body.metric_name || null,
+        metricUnit: body.metric_unit || null,
+        metricTarget: body.metric_target != null ? parseFloat(body.metric_target) : null,
+        periodType: body.period_type || null,
+        periodStart: body.period_start ? new Date(body.period_start) : null,
+        periodEnd: body.period_end ? new Date(body.period_end) : null,
       },
     })
 
